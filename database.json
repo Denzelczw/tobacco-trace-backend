@@ -1,0 +1,86 @@
+{
+  "ledger": {
+    "BALE_INIT_001": {
+      "id": "BALE_INIT_001",
+      "farmer": "G-12345",
+      "variety": "Virginia",
+      "weight": 100,
+      "gps": "-17.8216, 31.0492",
+      "curing": "Sustainable Wood",
+      "woodScore": 15,
+      "status": "CREATED",
+      "hash": "GENESIS_BLOCK_HASH",
+      "riskLevel": "LOW",
+      "riskReason": "None",
+      "officerAssigned": "None"
+    },
+    "FRAUD_01": {
+      "id": "FRAUD_01",
+      "farmer": "G-12345",
+      "variety": "Virginia",
+      "weight": 100,
+      "gps": "-17.8216, 31.0492",
+      "curing": "Sustainable Wood",
+      "woodScore": 2,
+      "status": "CREATED",
+      "hash": "0a7c2f6914fe79f6955f6c394a1013cfc07308056f79704cfc2806223551a89a",
+      "riskLevel": "HIGH",
+      "riskReason": "Discrepancy: 100kg yield impossible with Wood Score 2",
+      "officerAssigned": "PENDING DISPATCH (TIMB Auditor)",
+      "photoEvidence": "IMG-NXMLMT9NU"
+    },
+    "OFFLINE_02": {
+      "id": "OFFLINE_02",
+      "farmer": "G-12345",
+      "variety": "Virginia",
+      "weight": 100,
+      "gps": "",
+      "curing": "Sustainable Wood",
+      "woodScore": 15,
+      "status": "CREATED",
+      "hash": "0b86ab4ad67c12ebb45364ed59673136596e63e7a3ba35c25543f669012275bb",
+      "riskLevel": "MEDIUM",
+      "riskReason": "Offline Farmer (No Photo Evidence)",
+      "officerAssigned": "PENDING DISPATCH (Local Agritex)",
+      "photoEvidence": "None"
+    },
+    "HOTSPOT_03": {
+      "id": "HOTSPOT_03",
+      "farmer": "G-12345",
+      "variety": "Virginia",
+      "weight": 100,
+      "gps": "-16.8225, 29.6925",
+      "curing": "Sustainable Wood",
+      "woodScore": 2,
+      "status": "CREATED",
+      "hash": "b055ef3bb1647e8d1af2c9f31133c96b8995d133847cfaa3110b784502a276ab",
+      "riskLevel": "HIGH",
+      "riskReason": "Discrepancy: 100kg yield impossible with Wood Score 2",
+      "officerAssigned": "PENDING DISPATCH (TIMB Auditor)",
+      "photoEvidence": "IMG-KAROI-123"
+    }
+  },
+  "users": [
+    {
+      "id": "G-12345",
+      "nationalId": "63-111111-F-12",
+      "role": "FARMER",
+      "name": "Tinashe (Farmer)",
+      "wallet": 50
+    },
+    {
+      "id": "TIMB-001",
+      "nationalId": "00-000000-A-00",
+      "role": "ADMIN",
+      "name": "TIMB Officer",
+      "wallet": 0
+    },
+    {
+      "id": "BAT-001",
+      "nationalId": "99-999999-B-99",
+      "role": "BUYER",
+      "name": "BAT Zimbabwe",
+      "wallet": 50000
+    }
+  ]
+}

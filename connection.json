@@ -1,0 +1,46 @@
+{
+    "name": "test-network-org1",
+    "version": "1.0.0",
+    "client": {
+        "organization": "Org1",
+        "connection": {
+            "timeout": {
+                "peer": {
+                    "endorser": "300"
+                }
+            }
+        }
+    },
+    "organizations": {
+        "Org1": {
+            "mspid": "Org1MSP",
+            "peers": [
+                "peer0.org1.example.com"
+            ],
+            "certificateAuthorities": [
+                "ca.org1.example.com"
+            ]
+        }
+    },
+    "peers": {
+        "peer0.org1.example.com": {
+            "url": "grpcs://peer0.org1.example.com:7051",
+            "tlsCACerts": {
+                "pem": "-----BEGIN CERTIFICATE-----\nMIIC1jCCAnygAwIBAgIUejqwqH65JyLEe5pldCMJspr3aMcwCgYIKoZIzj0EAwIw\ncDELMAkGA1UEBhMCVVMxFzAVBgNVBAgTDk5vcnRoIENhcm9saW5hMQ8wDQYDVQQH\nEwZEdXJoYW0xGTAXBgNVBAoTEG9yZzEuZXhhbXBsZS5jb20xHDAaBgNVBAMTE2Nh\nLm9yZzEuZXhhbXBsZS5jb20wHhcNMjYwMjAxMTQxNjAwWhcNMjcwMjAxMTQyMTAw\nWjBbMQswCQYDVQQGEwJVUzEXMBUGA1UECBMOTm9ydGggQ2Fyb2xpbmExFDASBgNV\nBAoTC0h5cGVybGVkZ2VyMQ0wCwYDVQQLEwRwZWVyMQ4wDAYDVQQDEwVwZWVyMDBZ\nMBMGByqGSM49AgEGCCqGSM49AwEHA0IABNAHei0zcRVt3xXIPlxuRcgdsw/AFWgq\nArffKrALzIDERahu97ZS51QPTw2wgNJO9+7rGlkKNHytBR3fTgfaru+jggEHMIIB\nAzAOBgNVHQ8BAf8EBAMCA6gwHQYDVR0lBBYwFAYIKwYBBQUHAwEGCCsGAQUFBwMC\nMAwGA1UdEwEB/wQCMAAwHQYDVR0OBBYEFM5BRboLyEvoYwRlSxHVsS6tJsGHMB8G\nA1UdIwQYMBaAFMx5EVSCqnDVXRhwq9UgbHoCNiKEMCwGA1UdEQQlMCOCFnBlZXIw\nLm9yZzEuZXhhbXBsZS5jb22CCWxvY2FsaG9zdDBWBggqAwQFBgcIAQRKeyJhdHRy\ncyI6eyJoZi5BZmZpbGlhdGlvbiI6IiIsImhmLkVucm9sbG1lbnRJRCI6InBlZXIw\nIiwiaGYuVHlwZSI6InBlZXIifX0wCgYIKoZIzj0EAwIDSAAwRQIhAIX4+uU8fvH4\nFLluVAhxsU3WeAuA3tGgFMUkYJ0dppLmAiAHstqGW2wrMxaFcn0VZ9cbmziWMmQ9\nmhhI7B/tUF6wag==\n-----END CERTIFICATE-----"
+            },
+            "grpcOptions": {
+                "ssl-target-name-override": "peer0.org1.example.com",
+                "hostnameOverride": "peer0.org1.example.com"
+            }
+        }
+    },
+    "certificateAuthorities": {
+        "ca.org1.example.com": {
+            "url": "https://localhost:7054",
+            "caName": "ca-org1",
+            "httpOptions": {
+                "verify": false
+            }
+        }
+    }
+}
