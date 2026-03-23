@@ -8,14 +8,17 @@ const crypto = require('crypto');
 const app = express();
 app.use(cors());
 app.use(bodyParser.json());
-// Render assigns a dynamic PORT, so we use process.env.PORT
 const PORT = process.env.PORT || 3001; 
 const DB_FILE = path.join(__dirname, 'database.json');
 
+// --- DATABASE WITH GEOFENCING COORDINATES ADDED ---
 const defaultData = {
     ledger: {},
     users: [
-        { id: 'G-12345', nationalId: '63-111111-F-12', role: 'FARMER', name: 'Tinashe (Farmer)', wallet: 50 },
+        { 
+            id: 'G-12345', nationalId: '63-111111-F-12', role: 'FARMER', name: 'Tinashe (Farmer)', wallet: 50,
+            homeGPS: { lat: -17.8248, lon: 31.0530 } // Registered Farm coordinates
+        },
         { id: 'TIMB-001', nationalId: '00-000000-A-00', role: 'ADMIN', name: 'TIMB Officer', wallet: 0 },
         { id: 'BAT-001', nationalId: '99-999999-B-99', role: 'BUYER', name: 'BAT Zimbabwe', wallet: 50000 }
     ]
@@ -31,6 +34,25 @@ function saveDatabase(data) {
 }
 let db = loadDatabase();
 
+// --- HELPER FUNCTIONS ---
+// 1. Calculate GPS distance (Haversine Formula) for Proof of Origin
+function getDistance(lat1, lon1, lat2, lon2) {
+    const R = 6371; 
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLon = (lon2 - lon1) * Math.PI / 180;
+    const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+              Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+              Math.sin(dLon/2) * Math.sin(dLon/2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+    return R * c; 
+}
+
+// 2. Generate Chained Hashes for Real-Time Traceability
+function generateHash(previousHash, payload) {
+    return crypto.createHash('sha256').update(`${previousHash}-${JSON.stringify(payload)}-${Date.now()}`).digest('hex');
+}
+
+// --- API ROUTES ---
 app.post('/api/login', (req, res) => {
     const { growerId, nationalId } = req.body;
     const user = db.users.find(u => u.id === growerId && u.nationalId === nationalId);
@@ -41,38 +63,53 @@ app.post('/api/bale', (req, res) => {
     const { id, farmer, variety, weight, gps, curing, woodScore, offlineMode, photoHash } = req.body;
     if (db.ledger[id]) return res.status(400).json({ error: 'Bale ID already exists' });
 
-    let riskLevel = 'LOW'; let riskReason = 'None'; let officerAssigned = 'None';
+    const user = db.users.find(u => u.id === farmer);
+    let riskLevel = 'LOW'; let riskReason = 'Verified Origin'; let officerAssigned = 'None';
     const parsedWeight = parseFloat(weight) || 0;
     const parsedWood = parseInt(woodScore) || 0;
 
-    // --- NEW: TRANSPARENT PRICING ALGORITHM ---
-    // Base price: $3.00 per kg.
-    // Green Premium: If Wood Score is 15 or below, add a $20 environmental bonus.
+    // --- TRANSPARENT PRICING ALGORITHM ---
     const baseValue = parsedWeight * 3.00;
     const greenBonus = parsedWood <= 15 ? 20 : 0;
     const floorPrice = baseValue + greenBonus;
 
+    // --- GEOFENCING & RISK ENGINE ---
     if (offlineMode) {
         riskLevel = 'MEDIUM'; riskReason = 'Offline Farmer (No Photo Evidence)'; officerAssigned = 'PENDING DISPATCH (Local Agritex)';
     } else {
+        if (gps && user && user.homeGPS) {
+            const [currLat, currLon] = gps.split(',').map(Number);
+            const distance = getDistance(currLat, currLon, user.homeGPS.lat, user.homeGPS.lon);
+            if (distance > 5) {
+                riskLevel = 'HIGH'; riskReason = `GEO-FRAUD: Bale registered ${distance.toFixed(2)}km away from farm.`; officerAssigned = 'PENDING DISPATCH (TIMB Auditor)';
+            }
+        }
+        
         if (parsedWood > 0 && (parsedWeight / parsedWood) > 20) {
             riskLevel = 'HIGH'; riskReason = `Discrepancy: ${parsedWeight}kg yield impossible with Wood Score ${parsedWood}`; officerAssigned = 'PENDING DISPATCH (TIMB Auditor)';
-        } else if (gps.includes('-16.8')) {
+        } else if (gps && gps.includes('-16.8')) {
             riskLevel = 'HIGH'; riskReason = 'Geographic Hotspot (Karoi Zone 4)'; officerAssigned = 'PENDING DISPATCH (Forestry Commission)';
-        } else if (Math.random() < 0.10) {
-            riskLevel = 'MEDIUM'; riskReason = 'Randomized Spot Check'; officerAssigned = 'PENDING DISPATCH (TIMB Auditor)';
         }
     }
 
-    const txHash = crypto.createHash('sha256').update(`${id}-${farmer}-${Date.now()}`).digest('hex');
+    // --- START TRACEABILITY CHAIN ---
+    const genesisHash = crypto.createHash('sha256').update(`GENESIS-${id}-${Date.now()}`).digest('hex');
 
     db.ledger[id] = { 
         id, farmer, variety, weight: parsedWeight, gps, curing, 
-        woodScore: parsedWood, status: 'CREATED', hash: txHash,
+        woodScore: parsedWood, status: 'CREATED', hash: genesisHash,
         riskLevel, riskReason, officerAssigned, photoEvidence: photoHash || 'None',
-        floorPrice // Saved to the ledger
+        floorPrice,
+        currentHash: genesisHash,
+        history: [{
+            action: 'REGISTERED_AT_FARM',
+            timestamp: new Date().toISOString(),
+            actor: farmer,
+            hash: genesisHash,
+            details: `Origin Lock: ${gps || 'Offline'} | Weight: ${parsedWeight}kg`
+        }]
     };
-    saveDatabase(db); res.json({ message: 'Bale Registered.' });
+    saveDatabase(db); res.json({ message: 'Bale Registered.', riskLevel });
 });
 
 app.get('/api/bales', (req, res) => { res.json(Object.values(db.ledger)); });
@@ -82,12 +119,22 @@ app.post('/api/bid', (req, res) => {
     const bale = db.ledger[baleId];
     if (!bale || bale.status === 'SOLD') return res.status(400).json({ error: 'Unavailable' });
     
-    // --- NEW: ENFORCE FLOOR PRICE ---
     if (amount < bale.floorPrice) return res.status(400).json({ error: `Bid rejected by Smart Contract. Must be at least $${bale.floorPrice}` });
 
     const buyer = db.users.find(u => u.id === buyerId);
     if (!buyer || buyer.wallet < amount) return res.status(400).json({ error: 'Insufficient Funds' });
 
+    // --- CONTINUE TRACEABILITY CHAIN ---
+    const newBidHash = generateHash(bale.currentHash, { amount, buyerId });
+    bale.history.push({
+        action: 'BID_PLACED',
+        timestamp: new Date().toISOString(),
+        actor: buyerId,
+        hash: newBidHash,
+        details: `Bid Amount: $${amount}`
+    });
+    
+    bale.currentHash = newBidHash;
     bale.highestBid = amount;
     bale.highestBidder = buyerId;
     bale.status = 'ON_AUCTION';
@@ -108,22 +155,30 @@ app.post('/api/accept', (req, res) => {
 
     const price = parseInt(bale.highestBid);
     
-    // --- NEW: AUTOMATED SETTLEMENT MATHEMATICS ---
-    const timbLevy = parseFloat((price * 0.015).toFixed(2)); // 1.5% tax
-    const platformFee = parseFloat((price * 0.005).toFixed(2)); // 0.5% system fee
+    // --- AUTOMATED SETTLEMENT MATHEMATICS ---
+    const timbLevy = parseFloat((price * 0.015).toFixed(2));
+    const platformFee = parseFloat((price * 0.005).toFixed(2));
     const netPayout = parseFloat((price - timbLevy - platformFee).toFixed(2));
 
     const buyerIdx = db.users.findIndex(u => u.id === bale.highestBidder);
     const farmerIdx = db.users.findIndex(u => u.id === farmerId);
     
     db.users[buyerIdx].wallet -= price;       
-    db.users[farmerIdx].wallet += netPayout; // Farmer only gets net payout     
+    db.users[farmerIdx].wallet += netPayout; 
 
+    // --- FINALIZE TRACEABILITY CHAIN ---
+    const finalHash = generateHash(bale.currentHash, { netPayout, buyer: bale.highestBidder });
+    bale.history.push({
+        action: 'SMART_CONTRACT_SETTLED',
+        timestamp: new Date().toISOString(),
+        actor: 'SYSTEM ORACLE',
+        hash: finalHash,
+        details: `Funds disbursed to EcoCash. Net: $${netPayout}. TIMB Levies paid.`
+    });
+
+    bale.currentHash = finalHash;
     bale.status = 'SOLD';
     bale.owner = bale.highestBidder;
-    bale.hash = crypto.createHash('sha256').update(`${baleId}-${bale.owner}-${price}-${Date.now()}`).digest('hex');
-    
-    // Save the immutable receipt to the ledger
     bale.receipt = { gross: price, timbLevy, platformFee, netPayout, method: 'EcoCash Mobile Money' };
 
     saveDatabase(db);
