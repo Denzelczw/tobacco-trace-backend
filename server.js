@@ -12,25 +12,11 @@ app.use(bodyParser.json());
 const PORT = process.env.PORT || 3001;
 const DB_FILE = path.join(__dirname, 'database.json');
 
-const REGION_CODES = {
-    'Harare':               'HRE',
-    'Bulawayo':             'BYO',
-    'Manicaland':           'MAN',
-    'Mashonaland Central':  'MSC',
-    'Mashonaland East':     'MSE',
-    'Mashonaland West':     'MSW',
-    'Masvingo':             'MVG',
-    'Matabeleland North':   'MTN',
-    'Matabeleland South':   'MTS',
-    'Midlands':             'MID',
-};
-
 const defaultData = {
     ledger: {},
-    farmerSequences: {},
     users: [
         {
-            id: 'TT-HRE-001',
+            id: 'G-12345',
             nationalId: '63-111111-F-12',
             role: 'FARMER',
             name: 'Tinashe Moyo',
@@ -38,7 +24,6 @@ const defaultData = {
             region: 'Harare',
             wallet: 50,
             status: 'ACTIVE',
-            registeredAt: '2025-01-10T00:00:00.000Z',
             homeGPS: { lat: -17.8248, lon: 31.0530 }
         },
         {
@@ -107,58 +92,6 @@ app.post('/api/login', (req, res) => {
 });
 
 // ─────────────────────────────────────────────
-// POST /api/farmers — TIMB registers a new farmer
-// ─────────────────────────────────────────────
-app.post('/api/farmers', (req, res) => {
-    const { name, nationalId, phone, region, homeGPS } = req.body;
-
-    if (!name || !nationalId || !phone || !region)
-        return res.status(400).json({ error: 'Name, National ID, phone and region are required.' });
-
-    if (db.users.find(u => u.nationalId === nationalId))
-        return res.status(400).json({ error: 'A farmer with this National ID already exists.' });
-
-    const regionCode = REGION_CODES[region];
-    if (!regionCode)
-        return res.status(400).json({ error: `Unknown region: ${region}` });
-
-    if (!db.farmerSequences) db.farmerSequences = {};
-    db.farmerSequences[regionCode] = (db.farmerSequences[regionCode] || 0) + 1;
-    const seq = String(db.farmerSequences[regionCode]).padStart(3, '0');
-    const growerId = `TT-${regionCode}-${seq}`;
-
-    const newFarmer = {
-        id: growerId,
-        nationalId,
-        role: 'FARMER',
-        name,
-        phone,
-        region,
-        wallet: 0,
-        status: 'ACTIVE',
-        registeredAt: new Date().toISOString(),
-        homeGPS: homeGPS || null,
-    };
-
-    db.users.push(newFarmer);
-    saveDatabase(db);
-
-    res.json({ success: true, message: 'Farmer registered successfully.', growerId, farmer: newFarmer });
-});
-
-// ─────────────────────────────────────────────
-// GET /api/farmers — list all farmers
-// ─────────────────────────────────────────────
-app.get('/api/farmers', (req, res) => {
-    const farmers = db.users.filter(u => u.role === 'FARMER').map(f => {
-        const baleCount = Object.values(db.ledger).filter(b => b.farmerId === f.id).length;
-        const { nationalId, ...safeFarmer } = f;
-        return { ...safeFarmer, baleCount };
-    });
-    res.json(farmers);
-});
-
-// ─────────────────────────────────────────────
 // POST /api/bale — register a bale
 // ─────────────────────────────────────────────
 app.post('/api/bale', (req, res) => {
@@ -191,7 +124,7 @@ app.post('/api/bale', (req, res) => {
 
     // --- PRICING ALGORITHM (curing-aware) ---
     const baseValue = parsedWeight * 3.00;
-    let greenBonus  = 0;
+    let greenBonus    = 0;
     let curingPenalty = 0;
 
     switch (curing) {
@@ -300,14 +233,14 @@ app.post('/api/bale', (req, res) => {
 });
 
 // ─────────────────────────────────────────────
-// GET /api/bales — fetch all bales
+// GET /api/bales
 // ─────────────────────────────────────────────
 app.get('/api/bales', (req, res) => {
     res.json(Object.values(db.ledger));
 });
 
 // ─────────────────────────────────────────────
-// POST /api/bid — place a bid
+// POST /api/bid
 // ─────────────────────────────────────────────
 app.post('/api/bid', (req, res) => {
     const { baleId, buyerId, amount } = req.body;
@@ -331,15 +264,15 @@ app.post('/api/bid', (req, res) => {
         details: `Bid Amount: $${amount}`
     });
     bale.currentHash = newBidHash;
-    bale.highestBid = amount;
+    bale.highestBid  = amount;
     bale.highestBidder = buyerId;
-    bale.status = 'ON_AUCTION';
+    bale.status      = 'ON_AUCTION';
     saveDatabase(db);
     res.json({ success: true });
 });
 
 // ─────────────────────────────────────────────
-// POST /api/accept — accept a bid
+// POST /api/accept
 // ─────────────────────────────────────────────
 app.post('/api/accept', (req, res) => {
     const { baleId, farmerId } = req.body;
