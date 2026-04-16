@@ -11,16 +11,53 @@ app.use(bodyParser.json());
 const PORT = process.env.PORT || 3001; 
 const DB_FILE = path.join(__dirname, 'database.json');
 
+const REGION_CODES = {
+  'Harare':       'HRE',
+  'Bulawayo':     'BYO',
+  'Manicaland':   'MAN',
+  'Mashonaland Central': 'MSC',
+  'Mashonaland East':    'MSE',
+  'Mashonaland West':    'MSW',
+  'Masvingo':     'MVG',
+  'Matabeleland North':  'MTN',
+  'Matabeleland South':  'MTS',
+  'Midlands':     'MID',
+};
+
 const defaultData = {
-    ledger: {},
-    users: [
-        { 
-            id: 'G-12345', nationalId: '63-111111-F-12', role: 'FARMER', name: 'Tinashe (Farmer)', wallet: 50,
-            homeGPS: { lat: -17.8248, lon: 31.0530 }
-        },
-        { id: 'TIMB-001', nationalId: '00-000000-A-00', role: 'ADMIN', name: 'TIMB Officer', wallet: 0 },
-        { id: 'BAT-001', nationalId: '99-999999-B-99', role: 'BUYER', name: 'BAT Zimbabwe', wallet: 50000 }
-    ]
+  ledger: {},
+  // Regional sequence counters — incremented each time a farmer is added in that region
+  farmerSequences: {},
+  users: [
+    {
+      id: 'TT-HRE-001',
+      nationalId: '63-111111-F-12',
+      role: 'FARMER',
+      name: 'Tinashe Moyo',
+      phone: '+263771234567',
+      region: 'Harare',
+      wallet: 50,
+      status: 'ACTIVE',
+      registeredAt: '2025-01-10T00:00:00.000Z',
+      homeGPS: { lat: -17.8248, lon: 31.0530 }
+    },
+    {
+      id: 'TIMB-001',
+      nationalId: '00-000000-A-00',
+      role: 'ADMIN',
+      name: 'TIMB Officer',
+      wallet: 0,
+      status: 'ACTIVE'
+    },
+    {
+      id: 'BAT-001',
+      nationalId: '99-999999-B-99',
+      role: 'BUYER',
+      name: 'BAT Zimbabwe',
+      wallet: 50000,
+      status: 'ACTIVE'
+    }
+  ]
 };
 
 function loadDatabase() {
@@ -56,7 +93,63 @@ app.post('/api/login', (req, res) => {
     if (user) res.json({ success: true, user }); else res.status(401).json({ success: false, error: 'Invalid Credentials' });
 });
 
-app.post('/api/bale', (req, res) => {
+// ── POST /api/farmers — TIMB registers a new farmer ──────────────
+app.post('/api/farmers', (req, res) => {
+    const { name, nationalId, phone, region, homeGPS } = req.body;
+
+    if (!name || !nationalId || !phone || !region)
+        return res.status(400).json({ error: 'Name, National ID, phone and region are required.' });
+
+    // Prevent duplicate National IDs
+    if (db.users.find(u => u.nationalId === nationalId))
+        return res.status(400).json({ error: 'A farmer with this National ID already exists.' });
+
+    const regionCode = REGION_CODES[region];
+    if (!regionCode)
+        return res.status(400).json({ error: `Unknown region: ${region}` });
+
+    // Increment the regional sequence counter
+    if (!db.farmerSequences) db.farmerSequences = {};
+    db.farmerSequences[regionCode] = (db.farmerSequences[regionCode] || 0) + 1;
+    const seq = String(db.farmerSequences[regionCode]).padStart(3, '0');
+    const growerId = `TT-${regionCode}-${seq}`;
+
+    const newFarmer = {
+        id: growerId,
+        nationalId,
+        role: 'FARMER',
+        name,
+        phone,
+        region,
+        wallet: 0,
+        status: 'ACTIVE',
+        registeredAt: new Date().toISOString(),
+        homeGPS: homeGPS || null,
+    };
+
+    db.users.push(newFarmer);
+    saveDatabase(db);
+
+    res.json({
+        success: true,
+        message: `Farmer registered successfully.`,
+        growerId,
+        farmer: newFarmer,
+    });
+});
+
+// ── GET /api/farmers — TIMB views all registered farmers ─────────
+app.get('/api/farmers', (req, res) => {
+    const farmers = db.users.filter(u => u.role === 'FARMER').map(f => {
+        // Count how many bales this farmer has registered
+        const baleCount = Object.values(db.ledger).filter(b => b.farmerId === f.id).length;
+        const { nationalId, ...safeFarmer } = f; // don't expose National ID in list
+        return { ...safeFarmer, baleCount };
+    });
+    res.json(farmers);
+});
+
+
     const {
         id, farmer, variety, numberOfBales, weight, estimatedValue,
         woodWeight, gps, curing, woodScore, inputs, destination,
