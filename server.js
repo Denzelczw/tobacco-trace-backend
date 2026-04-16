@@ -293,7 +293,7 @@ app.get('/api/farmers', (req, res) => {
 
     saveDatabase(db);
     res.json({ message: 'Bale Registered.', riskLevel, floorPrice, baleId: id });
-;
+
 
 app.get('/api/bales', (req, res) => { res.json(Object.values(db.ledger)); });
 
