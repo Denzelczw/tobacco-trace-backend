@@ -68,7 +68,9 @@ app.post('/api/bale', (req, res) => {
     const user = db.users.find(u => u.id === farmer);
     let riskLevel = 'LOW', riskReason = 'Verified Origin', officerAssigned = 'None';
     const parsedWeight   = parseFloat(weight) || 0;
-    const parsedWood     = parseInt(woodScore) || 0;
+    const parsedWood = parsedWoodWeight > 0 && parsedWeight > 0
+        ? parseFloat(((parsedWoodWeight / parsedWeight) * 100).toFixed(1))
+        : parseInt(woodScore) || 0; // fallback for legacy data
     const parsedWoodWeight = parseFloat(woodWeight) || 0;
     const parsedBales    = parseInt(numberOfBales) || 1;
     const parsedInputs   = Array.isArray(inputs) ? inputs : [];
