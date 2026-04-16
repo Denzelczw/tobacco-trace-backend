@@ -77,10 +77,34 @@ app.post('/api/bale', (req, res) => {
         ? (destinationOther || 'Unspecified')
         : (destination || 'Unspecified');
 
-    // --- TRANSPARENT PRICING ALGORITHM ---
-    const baseValue  = parsedWeight * 3.00;
-    const greenBonus = parsedWood <= 15 ? 20 : 0;
-    const floorPrice = parseFloat((baseValue + greenBonus).toFixed(2));
+    // --- TRANSPARENT PRICING ALGORITHM (Curing-Aware) ---
+    const baseValue = parsedWeight * 3.00;
+
+    // Green bonus & coal penalty vary by curing method
+    let greenBonus   = 0;
+    let curingPenalty = 0;
+
+    switch (curing) {
+      case 'Solar/Air-Cured':
+        greenBonus = 25;                          // most sustainable
+        break;
+      case 'Gas-Cured':
+        greenBonus = 15;                          // clean, no wood
+        break;
+      case 'Sustainable Wood':
+        greenBonus = parsedWood <= 15 ? 20 : 0;  // original rule preserved
+        break;
+      case 'Dark Fire-Cured':
+        greenBonus = 10;                          // traditional, partial credit
+        break;
+      case 'Coal':
+        curingPenalty = 15;                       // high-emission, penalised
+        break;
+      default:
+        greenBonus = 0;
+    }
+
+    const floorPrice = parseFloat((baseValue + greenBonus - curingPenalty).toFixed(2));
 
     // --- GEOFENCING & RISK ENGINE ---
     if (offlineMode) {
@@ -110,6 +134,27 @@ app.post('/api/bale', (req, res) => {
             riskLevel = riskLevel === 'HIGH' ? 'HIGH' : 'MEDIUM';
             riskReason = `Wood Weight Anomaly: ${parsedWoodWeight}kg wood for ${parsedWeight}kg tobacco`;
             if (officerAssigned === 'None') officerAssigned = 'PENDING REVIEW (Agritex)';
+        }
+
+        // --- CURING METHOD COMPLIANCE FLAGS ---
+        if (curing === 'Coal') {
+            // Coal always gets a MEDIUM flag regardless of wood score
+            riskLevel = riskLevel === 'HIGH' ? 'HIGH' : 'MEDIUM';
+            riskReason = (riskReason !== 'Verified Origin' ? riskReason + ' | ' : '')
+                + 'Coal Curing: High-emission method — floor price reduced by $15.';
+            if (officerAssigned === 'None') officerAssigned = 'PENDING REVIEW (Environmental Officer)';
+        }
+        if (curing === 'Dark Fire-Cured' && parsedWood > 20) {
+            riskLevel = riskLevel === 'HIGH' ? 'HIGH' : 'MEDIUM';
+            riskReason = (riskReason !== 'Verified Origin' ? riskReason + ' | ' : '')
+                + `Dark Fire-Cured: Wood score ${parsedWood} exceeds threshold of 20.`;
+            if (officerAssigned === 'None') officerAssigned = 'PENDING REVIEW (Forestry Commission)';
+        }
+        if (curing === 'Sustainable Wood' && parsedWood > 30) {
+            riskLevel = 'HIGH';
+            riskReason = (riskReason !== 'Verified Origin' ? riskReason + ' | ' : '')
+                + `Wood score ${parsedWood} exceeds non-compliance threshold of 30.`;
+            officerAssigned = 'PENDING DISPATCH (TIMB Auditor)';
         }
     }
 
@@ -147,7 +192,7 @@ app.post('/api/bale', (req, res) => {
             timestamp: registrationDate,
             actor: farmer,
             hash: genesisHash,
-            details: `Origin: ${gps || 'Offline'} | Batch: ${parsedBales} bales @ ${parsedWeight}kg | Destination: ${finalDestination} | Inputs: ${chemSummary}`
+            details: `Origin: ${gps || 'Offline'} | Batch: ${parsedBales} bales @ ${parsedWeight}kg | Curing: ${curing} | Green Bonus: ${greenBonus} | Penalty: -${curingPenalty} | Destination: ${finalDestination} | Inputs: ${chemSummary}`
         }]
     };
 
