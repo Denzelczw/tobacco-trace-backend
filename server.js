@@ -72,6 +72,13 @@ function getDistance(lat1, lon1, lat2, lon2) {
     return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
+function generateBaleId(farmerId) {
+    const date     = new Date().toISOString().slice(0, 10).replace(/-/g, ''); // 20250420
+    const random   = Math.random().toString(36).substring(2, 6).toUpperCase(); // e.g. X7K9
+    const cleanId  = farmerId.replace(/-/g, ''); // G12345
+    return `BALE-${cleanId}-${date}-${random}`;
+}
+
 function generateHash(previousHash, payload) {
     return crypto.createHash('sha256')
         .update(`${previousHash}-${JSON.stringify(payload)}-${Date.now()}`)
@@ -96,12 +103,13 @@ app.post('/api/login', (req, res) => {
 // ─────────────────────────────────────────────
 app.post('/api/bale', (req, res) => {
     const {
-        id, farmer, variety, numberOfBales, weight, estimatedValue,
+        farmer, variety, numberOfBales, weight, estimatedValue,
         woodWeight, gps, curing, woodScore, inputs, destination,
         destinationOther, offlineMode, photoHash
     } = req.body;
 
-    if (db.ledger[id]) return res.status(400).json({ error: 'Bale ID already exists' });
+    // Auto-generate a unique Bale ID — farmer cannot set their own
+    const id = generateBaleId(farmer);
 
     const user = db.users.find(u => u.id === farmer);
     let riskLevel = 'LOW';
