@@ -9,9 +9,13 @@ const app = express();
 app.use(cors());
 app.use(bodyParser.json());
 
-const PORT = process.env.PORT || 3001;
-const DB_FILE = path.join(__dirname, 'database.json');
+const PORT     = process.env.PORT || 3001;
+const DB_FILE  = path.join(__dirname, 'database.json');
+const CSV_FILE = path.join(__dirname, 'bales.csv');
 
+// ─────────────────────────────────────────────
+// DEFAULT DATA
+// ─────────────────────────────────────────────
 const defaultData = {
     ledger: {},
     users: [
@@ -45,6 +49,9 @@ const defaultData = {
     ]
 };
 
+// ─────────────────────────────────────────────
+// DATABASE HELPERS
+// ─────────────────────────────────────────────
 function loadDatabase() {
     try {
         if (fs.existsSync(DB_FILE)) return JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
@@ -60,8 +67,70 @@ function saveDatabase(data) {
 let db = loadDatabase();
 
 // ─────────────────────────────────────────────
-// HELPERS
+// CSV HELPERS
 // ─────────────────────────────────────────────
+const CSV_HEADERS = [
+    'Batch ID', 'Farmer ID', 'Farmer Name', 'Variety', 'Number of Bales',
+    'Total Weight (kg)', 'Weight per Bale (kg)', 'Estimated Value ($)',
+    'Wood Weight (kg)', 'Wood Score', 'Curing Method', 'Floor Price ($)',
+    'Destination', 'GPS Coordinates', 'Inputs Declared', 'Photo Evidence',
+    'Risk Level', 'Risk Reason', 'Officer Assigned', 'Status',
+    'Registration Date', 'Genesis Hash'
+];
+
+function escapeCSV(val) {
+    if (val === null || val === undefined) return '';
+    const str = Array.isArray(val) ? val.join(' | ') : String(val);
+    return str.includes(',') || str.includes('"') || str.includes('\n')
+        ? `"${str.replace(/"/g, '""')}"` : str;
+}
+
+function appendBaleToCSV(bale) {
+    try {
+        if (!fs.existsSync(CSV_FILE)) {
+            fs.writeFileSync(CSV_FILE, CSV_HEADERS.join(',') + '\n');
+        }
+        const row = [
+            bale.id,
+            bale.farmerId,
+            bale.farmerName,
+            bale.variety,
+            bale.numberOfBales,
+            bale.weight,
+            bale.weightPerBale,
+            bale.estimatedValue,
+            bale.woodWeight,
+            bale.woodScore,
+            bale.curing,
+            bale.floorPrice,
+            bale.destination,
+            bale.gps || 'OFFLINE',
+            (bale.inputs || []).join(' | '),
+            bale.photoEvidence,
+            bale.riskLevel,
+            bale.riskReason,
+            bale.officerAssigned,
+            bale.status,
+            bale.registrationDate ? new Date(bale.registrationDate).toLocaleDateString() : '',
+            bale.hash,
+        ].map(escapeCSV).join(',');
+        fs.appendFileSync(CSV_FILE, row + '\n');
+        console.log(`📄 Bale ${bale.id} appended to bales.csv`);
+    } catch (err) {
+        console.error('CSV write error:', err);
+    }
+}
+
+// ─────────────────────────────────────────────
+// OTHER HELPERS
+// ─────────────────────────────────────────────
+function generateBaleId(farmerId) {
+    const date    = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+    const random  = Math.random().toString(36).substring(2, 6).toUpperCase();
+    const cleanId = farmerId.replace(/-/g, '');
+    return `BALE-${cleanId}-${date}-${random}`;
+}
+
 function getDistance(lat1, lon1, lat2, lon2) {
     const R = 6371;
     const dLat = (lat2 - lat1) * Math.PI / 180;
@@ -70,13 +139,6 @@ function getDistance(lat1, lon1, lat2, lon2) {
         Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
         Math.sin(dLon / 2) * Math.sin(dLon / 2);
     return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-}
-
-function generateBaleId(farmerId) {
-    const date     = new Date().toISOString().slice(0, 10).replace(/-/g, ''); // 20250420
-    const random   = Math.random().toString(36).substring(2, 6).toUpperCase(); // e.g. X7K9
-    const cleanId  = farmerId.replace(/-/g, ''); // G12345
-    return `BALE-${cleanId}-${date}-${random}`;
 }
 
 function generateHash(previousHash, payload) {
@@ -99,7 +161,25 @@ app.post('/api/login', (req, res) => {
 });
 
 // ─────────────────────────────────────────────
-// POST /api/bale — register a bale
+// GET /api/bales/export — download CSV
+// ─────────────────────────────────────────────
+app.get('/api/bales/export', (req, res) => {
+    if (!fs.existsSync(CSV_FILE))
+        return res.status(404).json({ error: 'No CSV file found yet. Register a bale first.' });
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', `attachment; filename="TobaccoTrace_Bales_${new Date().toISOString().slice(0, 10)}.csv"`);
+    fs.createReadStream(CSV_FILE).pipe(res);
+});
+
+// ─────────────────────────────────────────────
+// GET /api/bales
+// ─────────────────────────────────────────────
+app.get('/api/bales', (req, res) => {
+    res.json(Object.values(db.ledger));
+});
+
+// ─────────────────────────────────────────────
+// POST /api/bale
 // ─────────────────────────────────────────────
 app.post('/api/bale', (req, res) => {
     const {
@@ -108,13 +188,12 @@ app.post('/api/bale', (req, res) => {
         destinationOther, offlineMode, photoHash
     } = req.body;
 
-    // Auto-generate a unique Bale ID — farmer cannot set their own
     const id = generateBaleId(farmer);
 
-    const user = db.users.find(u => u.id === farmer);
-    let riskLevel = 'LOW';
-    let riskReason = 'Verified Origin';
-    let officerAssigned = 'None';
+    const user             = db.users.find(u => u.id === farmer);
+    let riskLevel          = 'LOW';
+    let riskReason         = 'Verified Origin';
+    let officerAssigned    = 'None';
 
     const parsedWeight     = parseFloat(weight) || 0;
     const parsedWoodWeight = parseFloat(woodWeight) || 0;
@@ -125,12 +204,12 @@ app.post('/api/bale', (req, res) => {
         ? (destinationOther || 'Unspecified')
         : (destination || 'Unspecified');
 
-    // Auto-calculate wood score from weights — cannot be spoofed
+    // Auto-calculate wood score
     const parsedWood = parsedWoodWeight > 0 && parsedWeight > 0
         ? parseFloat(((parsedWoodWeight / parsedWeight) * 100).toFixed(1))
         : parseInt(woodScore) || 0;
 
-    // --- PRICING ALGORITHM (curing-aware) ---
+    // --- PRICING ALGORITHM ---
     const baseValue = parsedWeight * 3.00;
     let greenBonus    = 0;
     let curingPenalty = 0;
@@ -148,48 +227,48 @@ app.post('/api/bale', (req, res) => {
 
     // --- RISK ENGINE ---
     if (offlineMode) {
-        riskLevel = 'MEDIUM';
-        riskReason = 'Offline Farmer (No Photo Evidence)';
+        riskLevel       = 'MEDIUM';
+        riskReason      = 'Offline Farmer (No Photo Evidence)';
         officerAssigned = 'PENDING DISPATCH (Local Agritex)';
     } else {
         if (gps && user && user.homeGPS) {
             const [currLat, currLon] = gps.split(',').map(Number);
             const distance = getDistance(currLat, currLon, user.homeGPS.lat, user.homeGPS.lon);
             if (distance > 5) {
-                riskLevel = 'HIGH';
-                riskReason = `GEO-FRAUD: Bale registered ${distance.toFixed(2)}km away from farm.`;
+                riskLevel       = 'HIGH';
+                riskReason      = `GEO-FRAUD: Bale registered ${distance.toFixed(2)}km away from farm.`;
                 officerAssigned = 'PENDING DISPATCH (TIMB Auditor)';
             }
         }
         if (parsedWood > 0 && (parsedWeight / parsedWood) > 20) {
-            riskLevel = 'HIGH';
-            riskReason = `Discrepancy: ${parsedWeight}kg yield impossible with Wood Score ${parsedWood}`;
+            riskLevel       = 'HIGH';
+            riskReason      = `Discrepancy: ${parsedWeight}kg yield impossible with Wood Score ${parsedWood}`;
             officerAssigned = 'PENDING DISPATCH (TIMB Auditor)';
         } else if (gps && gps.includes('-16.8')) {
-            riskLevel = 'HIGH';
-            riskReason = 'Geographic Hotspot (Karoi Zone 4)';
+            riskLevel       = 'HIGH';
+            riskReason      = 'Geographic Hotspot (Karoi Zone 4)';
             officerAssigned = 'PENDING DISPATCH (Forestry Commission)';
         }
         if (parsedWoodWeight > 0 && parsedWoodWeight > parsedWeight * 1.5) {
-            riskLevel = riskLevel === 'HIGH' ? 'HIGH' : 'MEDIUM';
-            riskReason = `Wood Weight Anomaly: ${parsedWoodWeight}kg wood for ${parsedWeight}kg tobacco`;
+            riskLevel       = riskLevel === 'HIGH' ? 'HIGH' : 'MEDIUM';
+            riskReason      = `Wood Weight Anomaly: ${parsedWoodWeight}kg wood for ${parsedWeight}kg tobacco`;
             if (officerAssigned === 'None') officerAssigned = 'PENDING REVIEW (Agritex)';
         }
         if (curing === 'Coal') {
-            riskLevel = riskLevel === 'HIGH' ? 'HIGH' : 'MEDIUM';
+            riskLevel  = riskLevel === 'HIGH' ? 'HIGH' : 'MEDIUM';
             riskReason = (riskReason !== 'Verified Origin' ? riskReason + ' | ' : '')
                 + 'Coal Curing: High-emission method — floor price reduced by $15.';
             if (officerAssigned === 'None') officerAssigned = 'PENDING REVIEW (Environmental Officer)';
         }
         if (curing === 'Dark Fire-Cured' && parsedWood > 20) {
-            riskLevel = riskLevel === 'HIGH' ? 'HIGH' : 'MEDIUM';
+            riskLevel  = riskLevel === 'HIGH' ? 'HIGH' : 'MEDIUM';
             riskReason = (riskReason !== 'Verified Origin' ? riskReason + ' | ' : '')
                 + `Dark Fire-Cured: Wood score ${parsedWood} exceeds threshold of 20.`;
             if (officerAssigned === 'None') officerAssigned = 'PENDING REVIEW (Forestry Commission)';
         }
         if (curing === 'Sustainable Wood' && parsedWood > 30) {
-            riskLevel = 'HIGH';
-            riskReason = (riskReason !== 'Verified Origin' ? riskReason + ' | ' : '')
+            riskLevel       = 'HIGH';
+            riskReason      = (riskReason !== 'Verified Origin' ? riskReason + ' | ' : '')
                 + `Wood score ${parsedWood} exceeds non-compliance threshold of 30.`;
             officerAssigned = 'PENDING DISPATCH (TIMB Auditor)';
         }
@@ -204,47 +283,41 @@ app.post('/api/bale', (req, res) => {
 
     db.ledger[id] = {
         id,
-        farmerId: farmer,
-        farmerName: user ? user.name : farmer,
+        farmerId:     farmer,
+        farmerName:   user ? user.name : farmer,
         variety,
         numberOfBales: parsedBales,
-        weight: parsedWeight,
+        weight:        parsedWeight,
         weightPerBale: parsedBales > 0 ? parseFloat((parsedWeight / parsedBales).toFixed(2)) : parsedWeight,
         estimatedValue: parseFloat(estimatedValue) || 0,
-        woodScore: parsedWood,
-        woodWeight: parsedWoodWeight,
-        inputs: parsedInputs,
-        destination: finalDestination,
+        woodScore:     parsedWood,
+        woodWeight:    parsedWoodWeight,
+        inputs:        parsedInputs,
+        destination:   finalDestination,
         gps,
         curing,
-        photoEvidence: photoHash || 'None',
-        offlineMode: !!offlineMode,
+        photoEvidence:  photoHash || 'None',
+        offlineMode:    !!offlineMode,
         registrationDate,
-        status: 'CREATED',
-        hash: genesisHash,
-        currentHash: genesisHash,
+        status:         'CREATED',
+        hash:           genesisHash,
+        currentHash:    genesisHash,
         floorPrice,
         riskLevel,
         riskReason,
         officerAssigned,
         history: [{
-            action: 'REGISTERED_AT_FARM',
+            action:    'REGISTERED_AT_FARM',
             timestamp: registrationDate,
-            actor: farmer,
-            hash: genesisHash,
-            details: `Origin: ${gps || 'Offline'} | Batch: ${parsedBales} bales @ ${parsedWeight}kg | Curing: ${curing} | Green Bonus: $${greenBonus} | Penalty: -$${curingPenalty} | Destination: ${finalDestination} | Inputs: ${chemSummary}`
+            actor:     farmer,
+            hash:      genesisHash,
+            details:   `Origin: ${gps || 'Offline'} | Batch: ${parsedBales} bales @ ${parsedWeight}kg | Curing: ${curing} | Green Bonus: $${greenBonus} | Penalty: -$${curingPenalty} | Destination: ${finalDestination} | Inputs: ${chemSummary}`
         }]
     };
 
     saveDatabase(db);
+    appendBaleToCSV(db.ledger[id]);
     res.json({ message: 'Bale Registered.', riskLevel, floorPrice, baleId: id });
-});
-
-// ─────────────────────────────────────────────
-// GET /api/bales
-// ─────────────────────────────────────────────
-app.get('/api/bales', (req, res) => {
-    res.json(Object.values(db.ledger));
 });
 
 // ─────────────────────────────────────────────
@@ -265,16 +338,16 @@ app.post('/api/bid', (req, res) => {
 
     const newBidHash = generateHash(bale.currentHash, { amount, buyerId });
     bale.history.push({
-        action: 'BID_PLACED',
+        action:    'BID_PLACED',
         timestamp: new Date().toISOString(),
-        actor: buyerId,
-        hash: newBidHash,
-        details: `Bid Amount: $${amount}`
+        actor:     buyerId,
+        hash:      newBidHash,
+        details:   `Bid Amount: $${amount}`
     });
-    bale.currentHash = newBidHash;
-    bale.highestBid  = amount;
+    bale.currentHash   = newBidHash;
+    bale.highestBid    = amount;
     bale.highestBidder = buyerId;
-    bale.status      = 'ON_AUCTION';
+    bale.status        = 'ON_AUCTION';
     saveDatabase(db);
     res.json({ success: true });
 });
@@ -308,11 +381,11 @@ app.post('/api/accept', (req, res) => {
 
     const finalHash = generateHash(bale.currentHash, { netPayout, buyer: bale.highestBidder });
     bale.history.push({
-        action: 'SMART_CONTRACT_SETTLED',
+        action:    'SMART_CONTRACT_SETTLED',
         timestamp: new Date().toISOString(),
-        actor: 'SYSTEM ORACLE',
-        hash: finalHash,
-        details: `Funds disbursed to EcoCash. Net: $${netPayout}. TIMB Levies: $${timbLevy}. Platform Fee: $${platformFee}.`
+        actor:     'SYSTEM ORACLE',
+        hash:      finalHash,
+        details:   `Funds disbursed to EcoCash. Net: $${netPayout}. TIMB Levies: $${timbLevy}. Platform Fee: $${platformFee}.`
     });
     bale.currentHash = finalHash;
     bale.status      = 'SOLD';
