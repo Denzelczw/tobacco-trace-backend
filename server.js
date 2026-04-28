@@ -404,4 +404,12 @@ app.post('/api/accept', (req, res) => {
 });
 
 // ─────────────────────────────────────────────
+// Keep-alive ping — prevents Render free tier from spinning down
+setInterval(() => {
+    const https = require('https');
+    https.get('https://tobacco-trace-backend.onrender.com/api/bales', () => {
+        console.log('🔄 Keep-alive ping sent');
+    }).on('error', () => {});
+}, 14 * 60 * 1000); // ping every 14 minutes
+
 app.listen(PORT, () => console.log(`🚀 TOBACCO TRACE RUNNING ON PORT ${PORT}`));
