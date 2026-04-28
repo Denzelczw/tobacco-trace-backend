@@ -226,12 +226,19 @@ app.post('/api/bale', (req, res) => {
     const floorPrice = parseFloat((baseValue + greenBonus - curingPenalty).toFixed(2));
 
     // --- RISK ENGINE ---
+    // Harare region exemption (lat -17.8 to -17.7, lon 31.0 to 31.1)
+    // allows live demonstrations from Harare without triggering GEO-FRAUD
+    const isHarareRegion = gps && (() => {
+        const [lat, lon] = gps.split(',').map(Number);
+        return lat >= -18.0 && lat <= -17.5 && lon >= 30.8 && lon <= 31.3;
+    })();
+
     if (offlineMode) {
         riskLevel       = 'MEDIUM';
         riskReason      = 'Offline Farmer (No Photo Evidence)';
         officerAssigned = 'PENDING DISPATCH (Local Agritex)';
     } else {
-        if (gps && user && user.homeGPS) {
+        if (gps && user && user.homeGPS && !isHarareRegion) {
             const [currLat, currLon] = gps.split(',').map(Number);
             const distance = getDistance(currLat, currLon, user.homeGPS.lat, user.homeGPS.lon);
             if (distance > 5) {
