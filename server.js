@@ -11,7 +11,7 @@ app.use(cors());
 app.use(bodyParser.json());
 
 const PORT     = process.env.PORT || 3001;
-const MONGO_URI = process.env.MONGO_URI || 'mongodb+srv://tobaccoadmin:88HxN5pDXVXH5csw@tobacco-trace.0qc8mol.mongodb.net/tobaccotrace?retryWrites=true&w=majority&appName=tobacco-trace';
+const MONGO_URI = process.env.MONGO_URI;
 const CSV_FILE = path.join(__dirname, 'bales.csv');
 
 // ─────────────────────────────────────────────
